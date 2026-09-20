@@ -16,6 +16,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+!client/lib/
+!client/lib/**
 parts/
 sdist/
 var/
@@ -149,6 +151,8 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
@@ -208,6 +212,20 @@ tempCodeRunnerFile.py
 
 # PyPI configuration file
 .pypirc
+
+# Local agent/Codex workspace state
+.agent/
+AGENTS.md
+CLAUDE.md
+
+# Node / Next.js / browser test output
+node_modules/
+.next/
+playwright-report/
+test-results/
+
+# Local product data
+data/
 
 # Marimo
 marimo/_static/

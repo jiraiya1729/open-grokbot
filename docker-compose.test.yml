@@ -1,0 +1,6 @@
+services:
+  api:
+    environment:
+      ENVIRONMENT: test
+      MODEL_PROVIDER: deterministic
+      ENABLE_INLINE_WORKER: "false"

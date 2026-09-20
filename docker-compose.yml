@@ -1,0 +1,131 @@
+name: open-grokbot
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-grokbot}
+      POSTGRES_USER: ${POSTGRES_USER:-grokbot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-grokbot}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-grokbot} -d ${POSTGRES_DB:-grokbot}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ./server
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://grokbot:grokbot@postgres:5432/grokbot}
+      AUTH_MODE: ${AUTH_MODE:-local}
+      LOCAL_USER_NAME: ${LOCAL_USER_NAME:-Local User}
+      LOCAL_USER_EMAIL: ${LOCAL_USER_EMAIL:-local@open-grokbot.test}
+      LOCAL_WORKSPACE_NAME: ${LOCAL_WORKSPACE_NAME:-My Workspace}
+      MODEL_PROVIDER: ${MODEL_PROVIDER:-bedrock}
+      BEDROCK_REGION: ${BEDROCK_REGION:-us-east-1}
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-moonshotai.kimi-k2.5}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      ENABLE_INLINE_WORKER: ${ENABLE_INLINE_WORKER:-false}
+      INNGEST_EVENT_URL: ${INNGEST_EVENT_URL:-http://inngest:8288/e/dev_key}
+      INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY:-dev_key}
+      INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY:-}
+      INNGEST_DEV: "1"
+      INNGEST_BASE_URL: http://inngest:8288
+      DATA_ROOT: /app/data
+      COMPUTER_PROVIDER: docker
+      COMPUTER_DAEMON_URL: http://computer-daemon:8010
+      COMPUTER_DAEMON_TOKEN: ${COMPUTER_DAEMON_TOKEN:-local-computer-daemon}
+      COMPUTER_IMAGE: open-grokbot-sandbox:0.3
+      COMPUTER_VIEWER_SECRET: ${COMPUTER_VIEWER_SECRET:-local-viewer-secret-change-me}
+      COMPUTER_VIEWER_PUBLIC_URL: ${COMPUTER_VIEWER_PUBLIC_URL:-http://localhost:8010}
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-local-development-key-change-me}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      computer-daemon:
+        condition: service_healthy
+    volumes:
+      - app-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  inngest:
+    image: inngest/inngest
+    command: ["inngest", "dev", "-u", "http://api:8000/api/inngest", "--no-discovery"]
+    ports:
+      - "8288:8288"
+      - "8289:8289"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./client
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  sandbox-image:
+    image: open-grokbot-sandbox:0.3
+    build:
+      context: ./computer/sandbox
+    entrypoint: ["/bin/true"]
+
+  computer-daemon:
+    build:
+      context: ./server
+      dockerfile: computer_daemon/Dockerfile
+    environment:
+      COMPUTER_DAEMON_TOKEN: ${COMPUTER_DAEMON_TOKEN:-local-computer-daemon}
+      COMPUTER_VIEWER_SECRET: ${COMPUTER_VIEWER_SECRET:-local-viewer-secret-change-me}
+      COMPUTER_WORKSPACE_VOLUME_PREFIX: grokbot-workspace
+      COMPUTER_NETWORK: open-grokbot-computer
+      COMPUTER_EGRESS_NETWORK: ${COMPUTER_EGRESS_NETWORK:-open-grokbot-egress}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - default
+      - computer
+    ports:
+      - "8010:8010"
+    depends_on:
+      sandbox-image:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health/live')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres-data:
+  app-data:
+
+networks:
+  computer:
+    name: open-grokbot-computer
+    internal: true
